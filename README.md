@@ -45,6 +45,11 @@ tools, and the answer is thrown away if it does not cite them.
      answer with citations, or a refusal that says why
 ```
 
+Around that core: `surrogate/drift.py` (surrogate vs physics and input drift checks),
+`agent/usage.py` (latency, tokens and estimated cost per LLM call), `agent/eval_cases.json` +
+`agent/evals.py` (prompt and workflow regression suite), and `lambda_handler.py` + `infra/`
+(Terraform for AWS Lambda, validated, not deployed).
+
 ## Quick start
 
 ```bash
@@ -56,11 +61,15 @@ python -m hvac_cooling_ai predict  --t 44 --rh 30          # surrogate (millisec
 python -m hvac_cooling_ai size --t 40 --rh 15 --load-kw 12 --velocity 0.5 --r 0.5
 python -m hvac_cooling_ai psychro  --t 44 --rh 30
 python -m hvac_cooling_ai validate                         # comparison with the source project
-ANTHROPIC_API_KEY=... python -m hvac_cooling_ai ask "Will this cooler hold 26 C supply air on a 44 C, 30% RH afternoon?" --show-tools
+ANTHROPIC_API_KEY=... python -m hvac_cooling_ai ask "Will this cooler hold 26 C supply air on a 44 C, 30% RH afternoon?" --show-tools --show-usage
 
-pytest -q          # 55 tests; the one live-API test is skipped without a key
+python -m hvac_cooling_ai drift --n 100                    # surrogate vs physics on 100 fresh points
+python -m hvac_cooling_ai drift --inputs examples/requests-heatwave.csv   # input drift for a request log
+
+pytest -q          # 104 pass; 16 live-API tests are skipped without a key
 ruff check . && ruff format --check .
 python -m hvac_cooling_ai.surrogate.train                  # regenerate the surrogate (about 1 minute)
+infra/build_lambda.sh && terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
 ```
 
 ## The physics model
@@ -235,9 +244,127 @@ real**: they are the outputs of the tools in this repo for these inputs. Reprodu
 > outside the range this cooler model was validated for (inlet dry-bulb 52C is outside the
 > validated range 25-50C). [R1] refused the request rather than extrapolate.
 
+## Drift detection
+
+`surrogate/drift.py`, CLI `drift`. Two questions: is the saved surrogate still faithful to the
+physics, and does real traffic look like what it was trained on?
+
+**Surrogate vs physics.** Sample fresh points inside the envelope on a seed never used in training,
+run both models, and compare. The limits are the held-out test errors recorded in `metrics.json`
+times 3, so the bar follows the model that shipped. This catches a stale artifact after the physics
+changes, a swapped or corrupted model file, or a library upgrade that shifts predictions. Exit code 4
+means drift. CI runs it on 100 points on every push.
+
+`python -m hvac_cooling_ai drift --n 100` (run 2026-09-26):
+
+| Supply temperature error | Observed, 100 fresh points | Limit (3 x recorded test error) |
+|---|---|---|
+| Mean absolute error | 0.033 K | 0.142 K |
+| 95th percentile | 0.122 K | 0.464 K |
+| Worst | 0.168 K | 1.077 K |
+| Evaporated water, mean absolute error | 0.149 g/kg | 0.588 g/kg |
+
+Result: passed. Planted drift trips it (`tests/test_drift.py`, 40 points like CI): the saved model
+with 0.01 added to its wet-bulb effectiveness (about 0.1 K) measured MAE 0.149 K against the
+0.142 K limit and failed; with 0.02 it measured 0.280 K and failed; the unmodified model measured
+0.050 K on the same points and passed. Physics that drifted 3% under a stale surrogate also fails.
+
+**Input drift.** Give it a CSV or JSON of real requests (the same field names the tools take:
+`dry_bulb_c`, `relative_humidity_pct` or `humidity_ratio_g_kg`, and optionally
+`channel_velocity_m_s`, `working_air_fraction`). It reports the share outside the training envelope
+(the tools refuse those) and a population stability index per feature against the exact 6000
+training inputs, regenerated from the recorded seed. It fails above 5% outside the envelope or a PSI
+above 0.25. Features a request log does not supply are not scored, because the tool default is a
+design choice, not traffic. Fewer than 50 valid rows get no PSI.
+
+The two files in `examples/` are **synthetic** (written by `examples/make_requests.py`), not real
+traffic:
+
+| `python -m hvac_cooling_ai drift --inputs ...` | Outside envelope | PSI dry-bulb | PSI humidity | Result |
+|---|---|---|---|---|
+| `examples/requests-training-like.csv` (500 rows) | 0 | 0.033 | 0.024 | pass |
+| `examples/requests-heatwave.csv` (same rows, 8 C hotter) | 154 (30.8%) | 2.491 | 0.024 | fail |
+
+The training sample is uniform over the envelope, so real traffic that clusters (all dry, all hot)
+will show a high PSI even inside the envelope. That is a signal to look at accuracy in that region,
+not proof the answers are wrong; the surrogate-vs-physics check is what measures accuracy.
+
+## Cost and latency tracking
+
+`agent/usage.py`. Both loops record every LLM request on `AgentResult.llm_calls`: wall-clock
+latency, input and output tokens from the API's own usage fields (Anthropic `input_tokens`,
+`output_tokens` and the cache fields; Groq/OpenAI `prompt_tokens`, `completion_tokens`) and an
+estimated cost. `AgentResult.usage` sums them; `ask --show-usage` prints them.
+
+Prices are **configurable estimates** in code, US dollars per million tokens, read 2026-09-26:
+`claude-sonnet-5` $2.00 in / $10.00 out (Anthropic list price; cache writes priced at 1.25x input,
+cache reads at 0.1x) and `openai/gpt-oss-120b` $0.15 in / $0.60 out (Groq's model page). Point
+`HVAC_AI_PRICES` at a JSON file to change them. A model with no price, or a response with no usage
+block, shows `n/a` rather than a guessed figure. Groq latency includes any rate-limit wait.
+
+Output of a **scripted fake run** (no network, so latency is 0.00 s; the token counts are the
+script's, not a real model's), the same path `tests/test_usage.py` checks:
+
+```
+call 1  openai/gpt-oss-120b  0.00 s  in 1200 tok  out 80 tok  $0.00023
+call 2  openai/gpt-oss-120b  0.00 s  in 1200 tok  out 80 tok  $0.00023
+total  2 calls  0.00 s  in 2400 tok  out 160 tok  est. $0.00046 (prices are estimates as of 2026-09-26)
+```
+
+## Prompt and workflow regression suite
+
+`agent/eval_cases.json` holds 9 contractor questions. Each states the expected outcome
+(`grounded`, `refused` outside the envelope, or `withheld` by the citation guard), the tools that
+must be called, and argument checks (for example, 104 F must reach the tool as 40 C, within 0.5).
+`tests/test_prompt_regression.py` replays each case through scripted Anthropic and Groq clients, so
+all 9 run on both loops in CI (18 tests) with tools, guard and usage tracking in the path. With
+`ANTHROPIC_API_KEY` or `GROQ_API_KEY` set, the 7 cases marked live send the same questions to the
+real model and apply the same expectations; without a key those 14 tests are skipped.
+
+Controls: a guard planted to accept every answer turns the withheld and both refused cases red
+(`test_suite_catches_a_disabled_guard`), and a model that passes 104 as Celsius is reported both for
+the wrong outcome and for the wrong argument. The suite also caught a real bug while this was being
+built: the Groq loop's usage list was overwritten by a variable of the same name, and all 9 Groq
+cases failed until it was fixed.
+
+## Deploying the tools on AWS (Terraform): validated, not deployed
+
+**This has been validated, not deployed.** There are no AWS credentials in this project, so
+`terraform plan` and `apply` have never run against an account.
+
+`infra/` would put the four tools (not the LLM, so no API keys in the cloud) behind one Lambda
+function. `src/hvac_cooling_ai/lambda_handler.py` takes function-URL events: `GET` lists the tools
+and the envelope; `POST {"tool": ..., "args": {...}}` returns 200, 422 when refused outside the
+envelope, or 400/405/413 for bad requests.
+
+* **Function:** Python 3.12 on arm64, 1024 MB, 30 s timeout, reserved concurrency 5 so a runaway
+  caller cannot run up the bill.
+* **Access:** a function URL with `AWS_IAM` auth, never public. `invoker_principal_arns` grants
+  named principals both permissions AWS now requires (`lambda:InvokeFunctionUrl`, and
+  `lambda:InvokeFunction` only when called through the URL); the `invoker_policy_json` output is
+  the matching identity policy for same-account callers.
+* **Least privilege:** the execution role can only write log streams in its own log group, which
+  Terraform creates with 14-day retention. It has no S3 access; Lambda fetches the code with the
+  deployer's credentials.
+* **Package:** `infra/build_lambda.sh` installs Linux arm64 wheels. The zip is 61,170,195 bytes
+  (over Lambda's 50 MB direct upload, so it goes through a private, encrypted, versioned S3 bucket
+  under a content-addressed key) and 220,834,383 bytes unzipped, under the 262,144,000 byte limit;
+  the script fails if that stops being true.
+
+Checks run: `terraform fmt -check -recursive`, `terraform init -backend=false` and
+`terraform validate` pass locally with Terraform 1.16.4 and AWS provider 6.66.0, and in CI; a
+misspelt argument planted in `main.tf` made `validate` fail. `tests/test_lambda_handler.py` covers
+the handler, and checks that the handler string in `main.tf` imports this function. The built zip
+was also run in AWS's public `python:3.12` arm64 Lambda base image with its local runtime emulator
+(Docker, 2026-09-26): list tools 200, physics 200 in 439 ms, surrogate 200 in 1708 ms (first call
+loads the model), refusal 422 in 0.66 ms. The emulator does not enforce the memory size, so those
+are not Lambda timings.
+
 ## Tests
 
-`pytest -q`: 55 tests (54 run without a key, 1 live-API test skipped). They cover:
+`pytest -q` (2026-09-26): 104 passed, 16 skipped. The 16 skipped are the live-API tests (2 older
+ones plus the 7 live regression cases on each of Claude and Groq), which run only with a key. They
+cover:
 
 * psychrometrics against PsychroLib;
 * physics: convergence everywhere in the envelope, outlet below inlet and above the dew point,
@@ -247,7 +374,11 @@ real**: they are the outputs of the tools in this repo for these inputs. Reprodu
 * surrogate error bound on fresh physics runs, envelope refusal, dew-point clamp;
 * tool contracts, bad-input handling, envelope refusal for every cooler tool, CLI;
 * the grounding guard and the loop (fake client), including the envelope override;
-* the validation numbers and the EER finding.
+* the validation numbers and the EER finding;
+* drift checks with planted drift (biased model, changed physics, hotter and drier traffic);
+* token, latency and cost parsing for both API formats, price overrides, `ask --show-usage`;
+* the prompt and workflow regression suite on both loops;
+* the Lambda handler, and that the Terraform handler string points at it.
 
 To check the tests can fail, three defects were planted by hand and each was caught: the dry
 side losing 10% less heat than the wet side gains (`test_energy_balance_closes`), the
@@ -273,6 +404,11 @@ citations of refused results (`test_guard_rejects_missing_unknown_and_failed_cit
   affect the supply air.
 * **The live assistant was not run for this README.** Its loop and guard are tested with a fake
   client; the live test runs only with a key.
+* **The live regression cases and live usage figures have not been run.** No key was available
+  when they were added; the only real model run is the Groq transcript above, recorded before
+  usage tracking existed.
+* **Prices are estimates** as of 2026-09-26 and will go stale; override them with `HVAC_AI_PRICES`.
+* **The AWS stack is validated, not deployed.** No `plan` or `apply` has run against an account.
 
 ## License
 
