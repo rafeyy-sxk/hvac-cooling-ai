@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from hvac_cooling_ai.agent.tools import COOLER_TOOLS, ToolSession
 
 CITATION = re.compile(r"\[(R\d+)\]")
+# Some open models (gpt-oss) cite with lenticular brackets, 【R1】; read them as [R1].
+_BRACKETS = str.maketrans({"【": "[", "】": "]"})
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ def envelope_refusal_text(session: ToolSession) -> str | None:
 
 
 def check_answer(text: str, session: ToolSession) -> GuardVerdict:
+    text = text.translate(_BRACKETS)
     refusal = envelope_refusal_text(session)
     if refusal is not None:
         return GuardVerdict(ok=True, text=refusal, reason="outside validated envelope")

@@ -1,0 +1,9 @@
+**Verdict**  
+- 40 °C / 20 % RH: a bench‑scale indirect evaporative cooler can get the supply air to about **26.5 °C** (just a shade above the 26 °C target).  
+- 35 °C / 60 % RH: the inlet humidity (≈21 g kg⁻¹) is outside the model’s validated range, so the cooler’s performance cannot be predicted here.
+
+**Supporting figures**  
+- Supply temperature from a single 200 × 200 mm channel pair at 40 °C, 20 % RH: **26.48 °C** [R2].  
+- The same inlet condition with two channel pairs gives the same supply temperature (26.48 °C) while doubling airflow [R5].  
+
+Because the 35 °C, 60 % RH case exceeds the allowed humidity‑ratio (4–20 g kg⁻¹), the tool refuses to simulate it, and no estimate is provided.

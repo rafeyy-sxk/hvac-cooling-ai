@@ -187,6 +187,19 @@ Guardrails (`agent/guard.py`):
 The loop logic is tested with a scripted fake client (`tests/test_agent.py`); the live test
 runs only when a key is present.
 
+### A real run on Groq (2026-09-26)
+
+`python -m hvac_cooling_ai ask --provider groq "I'm quoting a job in Phoenix. Will one of these coolers
+hold 26 C supply air on a 40 C, 20% RH afternoon? And what about a humid 35 C, 60% RH day?"`
+
+Model `openai/gpt-oss-120b` on Groq, same tools, prompt and citation guard as the Claude loop. The
+unedited output is in [`docs/live-transcript-groq-2026-09-26.txt`](docs/live-transcript-groq-2026-09-26.txt).
+It answered the dry afternoon from the physics tool (26.48 C supply, cited [R2]) and refused the
+humid day because 21 g/kg is outside the validated envelope, instead of guessing.
+
+The first live attempt was withheld by the guard: the model cited results as 【R1】, which the guard
+did not recognise. The guard now reads that bracket style too (`test_guard_reads_lenticular_bracket_citations_as_square`).
+
 ### Example transcripts (illustrative)
 
 These are **examples, not recorded model runs**: no API key was available while this was built,

@@ -47,6 +47,13 @@ def test_guard_accepts_cited_ok_result():
     assert check_answer("Supply is 25 C [R1].", s).ok
 
 
+def test_guard_reads_lenticular_bracket_citations_as_square():
+    s = ToolSession()
+    s.call("simulate_cooler", {"dry_bulb_c": 40, "relative_humidity_pct": 20})
+    verdict = check_answer("Supply is 25 C 【R1】.", s)
+    assert verdict.ok and "[R1]" in verdict.text
+
+
 def test_guard_rejects_missing_unknown_and_failed_citations():
     s = ToolSession()
     s.call("simulate_cooler", {"dry_bulb_c": 40})  # error: no humidity

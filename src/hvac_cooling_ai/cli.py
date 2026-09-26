@@ -58,8 +58,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("psychro", help="moist-air properties")
     _add_conditions(p)
 
-    p = sub.add_parser("ask", help="ask the AI assistant (needs ANTHROPIC_API_KEY)")
+    p = sub.add_parser("ask", help="ask the AI assistant (Claude, or Groq with --provider groq)")
     p.add_argument("question")
+    p.add_argument("--provider", choices=["claude", "groq"], default="claude")
     p.add_argument("--show-tools", action="store_true", help="print the tool calls and results")
 
     sub.add_parser("validate", help="compare against the source report's numbers")
@@ -88,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
         validation.main()
         return 0
     if ns.command == "ask":
-        from hvac_cooling_ai.agent.loop import ask
+        if ns.provider == "groq":
+            from hvac_cooling_ai.agent.groq_loop import ask
+        else:
+            from hvac_cooling_ai.agent.loop import ask
 
         try:
             result = ask(ns.question)
