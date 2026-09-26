@@ -1,4 +1,4 @@
-"""Command line: python -m hvac_cooling_ai {simulate,predict,size,psychro,ask,validate,envelope}."""
+"""Command line: python -m hvac_cooling_ai {simulate,predict,size,psychro,ask,validate,envelope,drift}."""
 
 from __future__ import annotations
 
@@ -36,6 +36,21 @@ def _run_tool(name: str, args: dict) -> int:
     return 0 if record.status == "ok" else 2
 
 
+def _drift(ns: argparse.Namespace) -> int:
+    from hvac_cooling_ai.surrogate import drift
+
+    if ns.inputs:
+        report = drift.check_inputs(drift.load_requests(ns.inputs))
+    else:
+        report = drift.check_model(
+            n=ns.n,
+            seed=drift.DRIFT_SEED if ns.seed is None else ns.seed,
+            tolerance=drift.DEFAULT_TOLERANCE if ns.tolerance is None else ns.tolerance,
+        )
+    print(json.dumps(report, indent=2))
+    return 0 if report["passed"] else 4
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hvac_cooling_ai", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -66,6 +81,19 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("validate", help="compare against the source report's numbers")
     sub.add_parser("envelope", help="print the validated operating envelope")
 
+    p = sub.add_parser(
+        "drift",
+        help="surrogate vs physics on fresh points, or input drift for a file of requests (--inputs)",
+    )
+    p.add_argument("--n", type=int, default=100, help="fresh operating points to check (default 100)")
+    p.add_argument(
+        "--seed", type=int, default=None, help="sampling seed (default: a seed unused in training)"
+    )
+    p.add_argument(
+        "--tolerance", type=float, default=None, help="limits = recorded test error x this (default 3)"
+    )
+    p.add_argument("--inputs", default=None, help="CSV or JSON of real requests: check input drift instead")
+
     ns = parser.parse_args(argv)
 
     if ns.command == "simulate":
@@ -88,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
 
         validation.main()
         return 0
+    if ns.command == "drift":
+        return _drift(ns)
     if ns.command == "ask":
         if ns.provider == "groq":
             from hvac_cooling_ai.agent.groq_loop import ask

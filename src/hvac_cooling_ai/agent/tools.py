@@ -82,7 +82,8 @@ def psychrometric_lookup(args: dict) -> dict:
     }
 
 
-def _operating_point(args: dict) -> tuple[float, float, float, float]:
+def operating_point(args: dict) -> tuple[float, float, float, float]:
+    """(dry-bulb C, humidity g/kg, velocity m/s, working-air fraction) from tool-style arguments."""
     t = _num(args, "dry_bulb_c")
     w_g = _humidity_g_kg(args)
     v = _num(args, "channel_velocity_m_s", DEFAULT_VELOCITY)
@@ -109,7 +110,7 @@ def _per_pair_flows(v: float, r: float) -> tuple[float, float]:
 
 
 def simulate_cooler(args: dict) -> dict:
-    t, w_g, v, r = _operating_point(args)
+    t, w_g, v, r = operating_point(args)
     _check_envelope(t, w_g, v, r)
     pairs = int(_num(args, "channel_pairs", 1))
     if pairs < 1:
@@ -138,7 +139,7 @@ def simulate_cooler(args: dict) -> dict:
 
 
 def predict_cooler_fast(args: dict) -> dict:
-    t, w_g, v, r = _operating_point(args)
+    t, w_g, v, r = operating_point(args)
     _check_envelope(t, w_g, v, r)
     pred = surrogate.predict(t, w_g, v, r)
     return {
@@ -166,7 +167,7 @@ def units_needed(args: dict) -> dict:
     room = _num(args, "room_temp_c", 26.0)
     if not 18.0 <= room <= 32.0:
         raise ToolInputError("room_temp_c must be between 18 and 32 C")
-    t, w_g, v, r = _operating_point(args)
+    t, w_g, v, r = operating_point(args)
     _check_envelope(t, w_g, v, r)
     res = iec.simulate(t, w_g / 1000.0, v, r, fan_power_w=FAN_POWER_PER_PAIR_W)
     m_supply, _ = _per_pair_flows(v, r)

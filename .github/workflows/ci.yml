@@ -25,3 +25,5 @@ jobs:
           ruff format --check .
       - name: Test
         run: pytest -q
+      - name: Surrogate drift check (100 fresh physics runs vs the saved model)
+        run: python -m hvac_cooling_ai drift --n 100
