@@ -1,0 +1,68 @@
+{
+  "seed": 20260926,
+  "n_samples": 6000,
+  "n_region_blocks_total": 300,
+  "n_region_blocks_test": 60,
+  "physics_label_seconds": 18.47,
+  "surrogate_predict_seconds_for_test_set": 0.0306,
+  "validation": {
+    "mlp": {
+      "n": 939,
+      "supply_temp_mae_k": 0.07661559095460754,
+      "supply_temp_p95_k": 0.21178091821895803,
+      "supply_temp_max_k": 2.500151395579866,
+      "eps_wb_mae": 0.004821266237265132,
+      "water_g_per_kg_mae": 0.02269804228181879,
+      "water_g_per_kg_max": 1.7968975791488724
+    },
+    "gbr": {
+      "n": 939,
+      "supply_temp_mae_k": 0.06710156534840464,
+      "supply_temp_p95_k": 0.21004340957103482,
+      "supply_temp_max_k": 0.6353803813530958,
+      "eps_wb_mae": 0.004384718331337772,
+      "water_g_per_kg_mae": 0.30844406037778294,
+      "water_g_per_kg_max": 4.00980803795925
+    }
+  },
+  "chosen_model": "gbr",
+  "test": {
+    "n": 1231,
+    "supply_temp_mae_k": 0.04731358172437561,
+    "supply_temp_p95_k": 0.15473517660348168,
+    "supply_temp_max_k": 0.3589268400565718,
+    "eps_wb_mae": 0.003451589204498078,
+    "water_g_per_kg_mae": 0.1960315088797022,
+    "water_g_per_kg_max": 1.249331652591522
+  },
+  "features": [
+    "t_in_c",
+    "w_in_g_kg",
+    "velocity_m_s",
+    "working_air_fraction"
+  ],
+  "targets": [
+    "eps_wb",
+    "water_g_per_kg_supply"
+  ],
+  "envelope": {
+    "t_in_c": [
+      25.0,
+      50.0
+    ],
+    "w_in_g_kg": [
+      4.0,
+      20.0
+    ],
+    "rh_max": 0.9,
+    "velocity_m_s": [
+      0.5,
+      3.0
+    ],
+    "working_air_fraction": [
+      0.2,
+      0.6
+    ]
+  },
+  "sklearn_version": "1.9.1"
+}

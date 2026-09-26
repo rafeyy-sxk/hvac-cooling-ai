@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hvac-cooling-ai"
+version = "0.1.0"
+description = "Physics model, ML surrogate and tool-using AI assistant for sizing indirect evaporative coolers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Abdul Rafey" }]
+dependencies = [
+  "numpy>=1.26",
+  "scikit-learn==1.9.1",
+  "joblib>=1.3",
+  "anthropic>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "psychrolib>=2.5"]
+
+[project.scripts]
+hvac-cooling-ai = "hvac_cooling_ai.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hvac_cooling_ai = ["surrogate/artifacts/*.joblib", "surrogate/artifacts/*.json"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["scratch"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
