@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("question")
     p.add_argument("--provider", choices=["claude", "groq"], default="claude")
     p.add_argument("--show-tools", action="store_true", help="print the tool calls and results")
+    p.add_argument(
+        "--show-usage", action="store_true", help="print latency, tokens and estimated cost per LLM call"
+    )
 
     sub.add_parser("validate", help="compare against the source report's numbers")
     sub.add_parser("envelope", help="print the validated operating envelope")
@@ -135,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
                 print("    " + json.dumps(rec.output))
             print()
         print(result.answer)
+        if ns.show_usage:
+            print()
+            for line in result.usage.lines():
+                print(line)
         return 0 if result.grounded else 3
     return 1
 

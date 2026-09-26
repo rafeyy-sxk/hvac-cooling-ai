@@ -27,7 +27,7 @@ hvac-cooling-ai = "hvac_cooling_ai.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hvac_cooling_ai = ["surrogate/artifacts/*.joblib", "surrogate/artifacts/*.json"]
+hvac_cooling_ai = ["surrogate/artifacts/*.joblib", "surrogate/artifacts/*.json", "agent/*.json"]
 
 [tool.ruff]
 line-length = 110

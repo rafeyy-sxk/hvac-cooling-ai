@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from hvac_cooling_ai.agent.guard import WITHHELD, check_answer
 from hvac_cooling_ai.agent.tools import TOOL_SPECS, ToolRecord, ToolSession
+from hvac_cooling_ai.agent.usage import LLMCall, UsageSummary, from_anthropic
 from hvac_cooling_ai.envelope import ENVELOPE
 
 MODEL = "claude-sonnet-5"
@@ -42,6 +44,12 @@ class AgentResult:
     guard_reason: str
     tool_calls: list[ToolRecord] = field(default_factory=list)
     stop_reason: str = ""
+    llm_calls: list[LLMCall] = field(default_factory=list)
+
+    @property
+    def usage(self) -> UsageSummary:
+        """Latency, tokens and estimated cost across every LLM call this answer took."""
+        return UsageSummary(self.llm_calls)
 
 
 def _text_of(content: list[Any]) -> str:
@@ -61,8 +69,10 @@ def ask(question: str, client: Any | None = None, model: str = MODEL) -> AgentRe
     session = ToolSession()
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
     retried_citation = False
+    calls: list[LLMCall] = []
 
     for _ in range(MAX_TURNS):
+        started = time.perf_counter()
         response = client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
@@ -70,13 +80,21 @@ def ask(question: str, client: Any | None = None, model: str = MODEL) -> AgentRe
             tools=TOOL_SPECS,
             messages=messages,
         )
+        calls.append(from_anthropic(model, response, time.perf_counter() - started))
         stop = response.stop_reason
         if stop == "refusal":
             return AgentResult(
-                "The model declined this request.", False, "model refusal", session.records, stop
+                "The model declined this request.",
+                False,
+                "model refusal",
+                session.records,
+                stop,
+                llm_calls=calls,
             )
         if stop == "max_tokens":
-            return AgentResult(WITHHELD, False, "response hit max_tokens", session.records, stop)
+            return AgentResult(
+                WITHHELD, False, "response hit max_tokens", session.records, stop, llm_calls=calls
+            )
         messages.append({"role": "assistant", "content": response.content})
         if stop == "pause_turn":
             continue
@@ -101,9 +119,9 @@ def ask(question: str, client: Any | None = None, model: str = MODEL) -> AgentRe
 
         verdict = check_answer(_text_of(response.content), session)
         if verdict.ok:
-            return AgentResult(verdict.text, True, verdict.reason, session.records, stop)
+            return AgentResult(verdict.text, True, verdict.reason, session.records, stop, llm_calls=calls)
         if retried_citation:
-            return AgentResult(WITHHELD, False, verdict.reason, session.records, stop)
+            return AgentResult(WITHHELD, False, verdict.reason, session.records, stop, llm_calls=calls)
         retried_citation = True
         messages.append(
             {
@@ -115,4 +133,4 @@ def ask(question: str, client: Any | None = None, model: str = MODEL) -> AgentRe
             }
         )
 
-    return AgentResult(WITHHELD, False, "too many turns", session.records, "max_turns")
+    return AgentResult(WITHHELD, False, "too many turns", session.records, "max_turns", llm_calls=calls)

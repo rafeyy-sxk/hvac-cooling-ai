@@ -1,0 +1,112 @@
+{
+  "about": "Prompt and workflow regression cases. 'expect' is checked against every run. 'script' is what a scripted fake model says, so the loop, tools and guard are tested offline in CI; the same questions go to the real model only when an API key is set and 'live' is not false. Figures in the scripted answers are the real tool outputs for those inputs.",
+  "cases": [
+    {
+      "id": "dry-afternoon-supply",
+      "question": "Will one of these coolers hold 26 C supply air on a 40 C, 20% RH afternoon?",
+      "expect": {
+        "outcome": "grounded",
+        "tools_any_of": ["simulate_cooler", "predict_cooler_fast"],
+        "args": [
+          {"tool": ["simulate_cooler", "predict_cooler_fast"], "arg": "dry_bulb_c", "approx": 40, "tol": 0.01}
+        ]
+      },
+      "script": [
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 40, "relative_humidity_pct": 20}}]},
+        {"text": "Just short: supply air comes out at about 26.5 C [R1] at the default design."}
+      ]
+    },
+    {
+      "id": "humid-day-refused",
+      "question": "What about a humid 35 C, 60% RH day? Will it still cool?",
+      "expect": {"outcome": "refused", "tools_any_of": ["simulate_cooler", "predict_cooler_fast", "units_needed"]},
+      "script": [
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 35, "relative_humidity_pct": 60}}]},
+        {"text": "It would probably still get to around 29 C."}
+      ]
+    },
+    {
+      "id": "too-hot-refused",
+      "question": "Can it handle a 52 C, 10% RH afternoon?",
+      "expect": {"outcome": "refused", "tools_any_of": ["simulate_cooler", "predict_cooler_fast", "units_needed"]},
+      "script": [
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 52, "relative_humidity_pct": 10}}]},
+        {"text": "Yes, easily."}
+      ]
+    },
+    {
+      "id": "sizing-12kw",
+      "question": "How many channel pairs do I need for a 12 kW sensible load on a 40 C, 15% RH day, holding the room at 26 C?",
+      "expect": {
+        "outcome": "grounded",
+        "tools": ["units_needed"],
+        "args": [{"tool": "units_needed", "arg": "sensible_load_kw", "approx": 12, "tol": 0.01}]
+      },
+      "script": [
+        {
+          "tool_calls": [
+            {
+              "name": "units_needed",
+              "args": {"sensible_load_kw": 12, "dry_bulb_c": 40, "relative_humidity_pct": 15, "room_temp_c": 26}
+            }
+          ]
+        },
+        {"text": "About 29,016 channel pairs [R1], moving about 32,790 CFM of 25.3 C supply air [R1]. This is a bench-scale core, not a catalogue unit."}
+      ]
+    },
+    {
+      "id": "fahrenheit-converted",
+      "question": "Customer is in Arizona: 104 F outside at 20% RH. What supply temperature will this cooler give?",
+      "expect": {
+        "outcome": "grounded",
+        "tools_any_of": ["simulate_cooler", "predict_cooler_fast"],
+        "args": [
+          {"tool": ["simulate_cooler", "predict_cooler_fast"], "arg": "dry_bulb_c", "approx": 40, "tol": 0.5}
+        ]
+      },
+      "script": [
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 40, "relative_humidity_pct": 20}}]},
+        {"text": "104 F is 40 C. Supply air is about 26.5 C, roughly 79.7 F [R1]."}
+      ]
+    },
+    {
+      "id": "psychro-lookup",
+      "question": "What is the wet bulb and dew point of 38 C air at 25% relative humidity?",
+      "expect": {"outcome": "grounded", "tools": ["psychrometric_lookup"]},
+      "script": [
+        {"tool_calls": [{"name": "psychrometric_lookup", "args": {"dry_bulb_c": 38, "relative_humidity_pct": 25}}]},
+        {"text": "Wet bulb about 22.3 C and dew point about 14.6 C [R1]."}
+      ]
+    },
+    {
+      "id": "fast-surrogate-estimate",
+      "question": "Give me a quick surrogate estimate of the supply temperature at 45 C with 8 g/kg humidity ratio.",
+      "expect": {"outcome": "grounded", "tools_any_of": ["predict_cooler_fast", "simulate_cooler"]},
+      "script": [
+        {"tool_calls": [{"name": "predict_cooler_fast", "args": {"dry_bulb_c": 45, "humidity_ratio_g_kg": 8}}]},
+        {"text": "About 28.1 C [R1], from the fast surrogate."}
+      ]
+    },
+    {
+      "id": "uncited-answer-withheld",
+      "live": false,
+      "question": "Will it hold 26 C supply air?",
+      "expect": {"outcome": "withheld", "tools": []},
+      "script": [
+        {"text": "Yes, it should be fine."},
+        {"text": "Trust me, it is fine."}
+      ]
+    },
+    {
+      "id": "bad-args-then-recovery",
+      "live": false,
+      "question": "Will it hold 26 C supply air on a 44 C, 30% RH afternoon?",
+      "expect": {"outcome": "grounded", "tools": ["simulate_cooler"]},
+      "script": [
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 44}}]},
+        {"tool_calls": [{"name": "simulate_cooler", "args": {"dry_bulb_c": 44, "relative_humidity_pct": 30}}]},
+        {"text": "No: supply air is about 31.5 C [R2], above your 26 C target."}
+      ]
+    }
+  ]
+}

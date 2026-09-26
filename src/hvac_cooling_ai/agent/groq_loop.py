@@ -19,6 +19,7 @@ from typing import Any
 from hvac_cooling_ai.agent.guard import WITHHELD, check_answer
 from hvac_cooling_ai.agent.loop import MAX_TURNS, SYSTEM_PROMPT, AgentResult
 from hvac_cooling_ai.agent.tools import TOOL_SPECS, ToolSession
+from hvac_cooling_ai.agent.usage import LLMCall, from_openai
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-120b"
@@ -75,8 +76,10 @@ def ask(question: str, post: Post | None = None, model: str | None = None) -> Ag
         {"role": "user", "content": question},
     ]
     retried_citation = False
+    llm_calls: list[LLMCall] = []
 
     for _ in range(MAX_TURNS):
+        started = time.perf_counter()
         data = post(
             {
                 "model": model,
@@ -86,11 +89,15 @@ def ask(question: str, post: Post | None = None, model: str | None = None) -> Ag
                 "temperature": 0,
             }
         )
+        # Wall time of the request, including any rate-limit waits inside _http_post.
+        llm_calls.append(from_openai(model, data, time.perf_counter() - started))
         choice = data["choices"][0]
         msg = choice["message"]
         finish = choice.get("finish_reason", "")
         if finish == "length":
-            return AgentResult(WITHHELD, False, "response hit max_tokens", session.records, finish)
+            return AgentResult(
+                WITHHELD, False, "response hit max_tokens", session.records, finish, llm_calls=llm_calls
+            )
         calls = msg.get("tool_calls") or []
         messages.append(
             {
@@ -120,9 +127,11 @@ def ask(question: str, post: Post | None = None, model: str | None = None) -> Ag
 
         verdict = check_answer((msg.get("content") or "").strip(), session)
         if verdict.ok:
-            return AgentResult(verdict.text, True, verdict.reason, session.records, finish)
+            return AgentResult(
+                verdict.text, True, verdict.reason, session.records, finish, llm_calls=llm_calls
+            )
         if retried_citation:
-            return AgentResult(WITHHELD, False, verdict.reason, session.records, finish)
+            return AgentResult(WITHHELD, False, verdict.reason, session.records, finish, llm_calls=llm_calls)
         retried_citation = True
         messages.append(
             {
@@ -134,4 +143,4 @@ def ask(question: str, post: Post | None = None, model: str | None = None) -> Ag
             }
         )
 
-    return AgentResult(WITHHELD, False, "too many turns", session.records, "max_turns")
+    return AgentResult(WITHHELD, False, "too many turns", session.records, "max_turns", llm_calls=llm_calls)
