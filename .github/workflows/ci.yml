@@ -27,3 +27,30 @@ jobs:
         run: pytest -q
       - name: Surrogate drift check (100 fresh physics runs vs the saved model)
         run: python -m hvac_cooling_ai drift --n 100
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.16.4"
+      - name: Format
+        run: terraform fmt -check -recursive
+      - name: Init (no backend, no AWS credentials)
+        run: terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform validate
+
+  lambda-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the Lambda zip and check it fits the 250 MB unzipped limit
+        run: PYTHON=python bash infra/build_lambda.sh

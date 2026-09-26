@@ -7,3 +7,9 @@ scratch/
 .env
 *.docx
 *.pdf
+infra/build/
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+build/
