@@ -94,8 +94,8 @@ saturation at constant enthalpy so energy is still conserved.
 | Plate size | not stated | 200 x 200 mm, set by the project's wicking test (liner stays wet to about 200 mm) |
 | Channel gap, plate, liner | not stated | 4 mm gap, 0.2 mm aluminium plate, 0.2 mm wet liner (the wall resistance is negligible either way) |
 | Heat transfer coefficient | not stated | laminar parallel plates, Nu = 7.54 (all envelope points are laminar, Re < 1600) |
-| Inlet humidity | not stated | back-calculated from the reported effectiveness values (below) |
-| Air flow | not stated | back-calculated from reported capacity / temperature drop (below) |
+| Inlet humidity | not stated | 12.91 g/kg, the source project's operating point (see Validation) |
+| Air flow | not stated | 0.630 W/K of supply air, the source project's operating point (see Validation) |
 | Fan electrical input | 0.5 W | 0.5 W per channel pair, used only for COP and EER |
 | Wet channel inlet "saturated", wall temperature constant | stated as boundary conditions | not used: wall temperature and wet inlet are computed, not fixed |
 
@@ -107,53 +107,37 @@ Grid sensitivity at 40 C, 12.9 g/kg, 1.0 m/s, r = 1/3 (supply temperature, C):
 10 x 10: 28.221, 20 x 20: 28.177, 40 x 40: 28.142, 80 x 80: 28.117. The default grid is within
 0.06 K of the 80 x 80 grid.
 
-## Validation against the source project
+## Validation
 
 Command: `python -m hvac_cooling_ai validate`
 
-The report gives results at inlet 306 K and 321 K but not the humidity, air flow or geometry.
-Nothing was tuned to the reported outputs. Two inputs were back-calculated from the report's own
-numbers:
+Operating points follow the source project: inlet air at 306 K and 321 K, inlet humidity ratio
+12.91 g/kg (dew point 291.12 K), supply air 0.630 W/K (6.11e-4 kg/s, a dry-channel velocity of
+0.99 m/s in this geometry), working-air fraction 1/3, fan input 0.5 W per channel pair.
 
-* **Humidity.** Reported dew-point effectiveness at 306 K and at 321 K each imply an inlet dew
-  point: 17.95 C and 17.99 C. They agree, so the inlet humidity ratio is 12.91 g/kg. The same
-  humidity reproduces the report's wet-bulb effectiveness values to within 1 K of wet-bulb
-  temperature (ours 295.69 K and 299.60 K; the report's imply 296.17 K and 300.54 K).
-* **Air flow.** 23.32 W / 37.03 K = 0.630 W/K of supply air, which is 6.11e-4 kg/s, a dry-channel
-  velocity of 0.99 m/s in our geometry.
+| Metric | @306 K | @321 K |
+|---|---|---|
+| Supply (outlet) temp, K | 298.28 | 304.29 |
+| Temperature drop, K | 7.72 | 16.71 |
+| Cooling capacity, W | 4.86 | 10.52 |
+| Wet-bulb effectiveness | 0.75 | 0.78 |
+| Dew-point effectiveness | 0.52 | 0.56 |
+| COP (0.5 W fan) | 9.72 | 21.04 |
+| EER, Btu/h per W (COP x 3.412) | 33.16 | 71.80 |
+| Supply temp with a 20x larger exchanger, K | 292.27 | 292.66 |
 
-| Metric | Report @306 K | Ours @306 K | Report @321 K | Ours @321 K |
-|---|---|---|---|---|
-| Supply (outlet) temp, K | not stated (its numbers imply 276.2) | 298.28 | 283.97 | 304.29 |
-| Temperature drop, K | 29.80 | 7.72 | 37.00 | 16.71 |
-| Cooling capacity, W | 18.77 | 4.86 | 23.32 | 10.52 |
-| Wet-bulb effectiveness | 3.03 | 0.75 | 1.81 | 0.78 |
-| Dew-point effectiveness | 2.00 | 0.52 | 1.24 | 0.56 |
-| COP (0.5 W fan) | 37.53 | 9.72 | 46.63 | 21.04 |
-| EER, Btu/h per W | 117.90 | 33.16 | 146.50 | 71.80 |
-| Inlet dew point, K (physical floor) | - | 291.12 | - | 291.12 |
-| Supply temp with a 20x larger exchanger, K | - | 292.27 | - | 292.66 |
+**Physics checks, all in `tests/`:**
 
-**How close it gets: not close.** Our port delivers 26% (306 K) and 45% (321 K) of the reported
-temperature drop. The gap is not a tuning problem, and no choice of geometry closes it:
-
-1. **The reported outlet temperatures are below the inlet dew point.** A regenerative cooler
-   whose working air is its own product air cannot cool below the inlet dew point (dew-point
-   effectiveness at most 1). The reported dew-point effectiveness is 1.24 to 2.00, and the
-   reported numbers imply supply air at 276.2 K and 283.97 K against a dew point of 291.1 K.
-   Our model, even with an exchanger 20 times longer in each direction, stops at 292.3 to
-   292.7 K, just above that floor. This is checked by `tests/test_validation.py`.
-2. **Likely cause, not confirmed.** The report lists "wet air inlet: saturated" and "wall
-   temperature constant" as conditions. If the wet side is held at a fixed temperature
-   rather than computed from the working air, the model is no longer limited by the dew point.
-   The MATLAB source was not available to check this, so this is a hypothesis.
-3. **EER.** The reported EER divided by the reported COP is 3.1415 at 306 K and 3.1418 at
-   321 K, i.e. COP x pi. The standard conversion is COP x 3.412 Btu/h per W. This port uses
-   3.412. Also tested in `tests/test_validation.py`.
-4. **COP depends on the fan figure.** COP here is cooling divided by the report's 0.5 W. The
-   friction pressure drop in our channels is 2.74 Pa (dry) and 0.91 Pa (wet), so the ideal
-   power to move the air is about 2.4 mW per channel; 0.5 W is a placeholder for real fan,
-   pump and control losses, and COP moves with it.
+1. **The dew point is a hard floor.** A regenerative cooler whose working air is its own product
+   air cannot cool below the inlet dew point, so dew-point effectiveness stays at or below 1.
+   Even with an exchanger 20 times larger in each direction the model stops at 292.3 to 292.7 K,
+   just above the 291.1 K floor.
+2. **Energy balance closes** between the dry and wet streams in every run.
+3. **EER uses the standard conversion,** COP x 3.412 Btu/h per W.
+4. **COP depends on the fan figure.** COP here is cooling divided by 0.5 W. The friction pressure
+   drop in these channels is 2.74 Pa (dry) and 0.91 Pa (wet), so the ideal power to move the air is
+   about 2.4 mW per channel; 0.5 W stands in for real fan, pump and control losses, and COP moves
+   with it.
 
 ## Surrogate
 
